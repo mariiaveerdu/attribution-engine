@@ -7,12 +7,12 @@ models:
       - name: order_id
         description: "ID único de la venta"
         tests:
-          - unique    # Error si hay IDs repetidos
-          - not_null  # Error si falta el ID
+          - unique   
+          - not_null  
       
       - name: revenue_amount
         description: "Monto de la venta"
         tests:
           - not_null
-          - dbt_utils.accepted_range: # Necesitarías el paquete dbt_utils, pero por ahora:
-              min_value: 0 # El dinero nunca puede ser negativo
+          - dbt_utils.accepted_range: 
+              min_value: 0 

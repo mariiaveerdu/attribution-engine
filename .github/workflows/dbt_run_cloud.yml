@@ -1,31 +1,31 @@
-name: dbt_cloud_sync
+name: dbt_cloud_pipeline
 
 on:
   push:
-    branches: [ main ] # Se activa al subir cambios a la rama principal
+    branches: [ main ]
 
 jobs:
-  run_dbt_cloud:
+  deploy:
     runs-on: ubuntu-latest
-    
-    env:
-      # GitHub buscará esta "llave" en sus secretos
-      MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install dbt
         run: |
           pip install dbt-duckdb
 
-      - name: Execute dbt Pipeline
+      - name: Run dbt Pipeline
+        env:
+          # IMPORTANTE: Aquí es donde GitHub lee tu "Secret" 
+          # y se lo pasa a dbt para que MotherDuck no pida login manual
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: |
           cd dbt_project
           dbt seed --profiles-dir .
