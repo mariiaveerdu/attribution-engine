@@ -1,0 +1,18 @@
+name: 'detective_ventas'
+version: '1.0.0'
+config-version: 2
+
+profile: 'detective_profile'
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+analysis-paths: ["analysis"]
+macro-paths: ["macros"]
+
+models:
+  detective_ventas:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

@@ -1,0 +1,7 @@
+detective_profile:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: 'md: detective_ventas'
+      token: "{{ env_var('MOTHERDUCK_TOKEN') }}"

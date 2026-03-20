@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: fct_attribution_last_click
+    description: "Tabla final de atribución Last Click para Marketing"
+    columns:
+      - name: order_id
+        description: "ID único de la venta"
+        tests:
+          - unique    # Error si hay IDs repetidos
+          - not_null  # Error si falta el ID
+      
+      - name: revenue_amount
+        description: "Monto de la venta"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range: # Necesitarías el paquete dbt_utils, pero por ahora:
+              min_value: 0 # El dinero nunca puede ser negativo
