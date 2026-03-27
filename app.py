@@ -29,20 +29,24 @@ token = st.secrets.get("MOTHERDUCK_TOKEN") or st.sidebar.text_input("🔑 Token:
 def get_advanced_data(md_token):
     try:
         con = duckdb.connect(f'md:detective_ventas?motherduck_token={md_token}')
-        # Query: Traemos la fecha formateada para análisis mensual
+        
+        # CAMBIO AQUÍ: Usamos 'converted_at' en lugar de 'event_date'
         query = """
         SELECT 
-            strftime(event_date, '%Y-%m') as event_month,
-            order_id,
+            strftime(converted_at, '%Y-%m') as event_month,
+            converted_at,
+            revenue_amount,
             winning_channel,
-            revenue_amount
+            session_id as order_id
         FROM detective_ventas.main.fct_attribute_last_click
-        ORDER BY event_date
+        ORDER BY converted_at
         """
         df = con.sql(query).df()
         con.close()
-        # Asegurar tipos de datos correctos
-        df['revenue_amount'] = df['revenue_amount'].astype(float)
+        
+        # Asegurar tipos de datos
+        df['revenue_amount'] = pd.to_numeric(df['revenue_amount'], errors='coerce')
+        df['converted_at'] = pd.to_datetime(df['converted_at'])
         return df
     except Exception as e:
         st.error(f"Error de base de datos: {e}")
