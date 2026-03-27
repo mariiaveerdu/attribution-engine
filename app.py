@@ -27,7 +27,7 @@ st.markdown("""
 token = st.secrets.get("MOTHERDUCK_TOKEN") or st.sidebar.text_input("🔑 Token:", type="password")
 
 @st.cache_data(ttl=600)
-def get_advanced_data(md_token):
+def get_data(md_token):
     con = duckdb.connect(f'md:detective_ventas?motherduck_token={md_token}')
     df = con.sql("SELECT * FROM fct_attribute_last_click").df()
     con.close()
