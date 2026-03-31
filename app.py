@@ -65,11 +65,39 @@ if token:
             st.plotly_chart(fig_tree, use_container_width=True)
 
         # --- GRÁFICA 4: EVOLUCIÓN ---
-        st.header("📈 Tendencias y Evolución de Eficiencia")
-        if 'event_month' in df_filtered.columns:
-            df_trend = df_filtered.groupby(['event_month', 'winning_channel'])['revenue_amount'].sum().reset_index()
-            fig_trend = px.area(df_trend, x='event_month', y='revenue_amount', color='winning_channel', template="plotly_dark")
-            st.plotly_chart(fig_trend, use_container_width=True)
+st.header("📈 Evolución Diaria de Ingresos")
+
+if 'converted_at' in df_filtered.columns:
+    # 1. Creamos una copia para no romper el dataframe original
+    df_ts = df_filtered.copy()
+    
+    # 2. Redondeamos la fecha al DÍA (quitamos horas/minutos/segundos)
+    df_ts['fecha_dia'] = df_ts['converted_at'].dt.date
+    
+    # 3. Agrupamos por Día y Canal
+    df_trend = df_ts.groupby(['fecha_dia', 'winning_channel'])['revenue_amount'].sum().reset_index()
+    
+    # 4. Ordenamos por fecha para que la línea no salte de un lado a otro
+    df_trend = df_trend.sort_values('fecha_dia')
+
+    # 5. Dibujamos el gráfico (usamos marcadores para que se vean los puntos aunque haya pocos días)
+    fig_trend = px.area(
+        df_trend, 
+        x='fecha_dia', 
+        y='revenue_amount', 
+        color='winning_channel',
+        line_group='winning_channel',
+        markers=True, # IMPORTANTE: Así verás los puntos exactos del 31 y el 1
+        template="plotly_dark",
+        title="Revenue Diario por Canal de Atribución"
+    )
+    
+    # Ajustamos el eje X para que no invente horas
+    fig_trend.update_xaxes(type='category', tickangle=45) 
+    
+    st.plotly_chart(fig_trend, use_container_width=True)
+else:
+    st.warning("No se puede generar la evolución porque falta la columna de fecha.")
 
         # --- TABLA DETALLADA ---
         with st.expander("🔍 Ver transacciones detalladas"):
