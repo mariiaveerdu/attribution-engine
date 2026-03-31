@@ -30,23 +30,25 @@ def get_advanced_data(md_token):
     try:
         con = duckdb.connect(f'md:detective_ventas?motherduck_token={md_token}')
         
-        # CAMBIO AQUÍ: Usamos 'converted_at' en lugar de 'event_date'
-        query = """
-        SELECT 
-            strftime(converted_at, '%Y-%m') as event_month,
-            converted_at,
-            revenue_amount,
-            winning_channel,
-            session_id as order_id
-        FROM detective_ventas.main.fct_attribute_last_click
-        ORDER BY converted_at
-        """
-        df = con.sql(query).df()
+        # Traemos TODO para inspeccionar qué llega realmente
+        df = con.sql("SELECT * FROM detective_ventas.main.fct_attribute_last_click").df()
         con.close()
+
+        # --- LIMPIEZA SENIOR DE DATOS ---
+        # 1. Forzar nombres de columnas a minúsculas para evitar líos
+        df.columns = [c.lower() for c in df.columns]
+
+        # 2. Gestionar la fecha (converted_at es tu columna real)
+        if 'converted_at' in df.columns:
+            df['converted_at'] = pd.to_datetime(df['converted_at'])
+            df['event_month'] = df['converted_at'].dt.strftime('%Y-%m')
+        else:
+            st.error("⚠️ No encuentro la columna 'converted_at' en tu tabla de MotherDuck.")
+            return None
+
+        # 3. Asegurar que el revenue es numérico
+        df['revenue_amount'] = pd.to_numeric(df['revenue_amount'], errors='coerce').fillna(0)
         
-        # Asegurar tipos de datos
-        df['revenue_amount'] = pd.to_numeric(df['revenue_amount'], errors='coerce')
-        df['converted_at'] = pd.to_datetime(df['converted_at'])
         return df
     except Exception as e:
         st.error(f"Error de base de datos: {e}")
@@ -119,22 +121,15 @@ if token:
             st.markdown("---")
 
             # --- SECCIÓN 3: TENDENCIAS Y EVOLUCIÓN (The "When") ---
-            st.header("📈 Tendencias y Evolución de Eficiencia")
+            # Gráfico de Evolución
+st.header("📈 Tendencias y Evolución de Eficiencia")
+if 'event_month' in df.columns:
+    df_trend = df.groupby(['event_month', 'winning_channel'])['revenue_amount'].sum().reset_index()
+    fig_trend = px.area(df_trend, x='event_month', y='revenue_amount', # Usamos revenue directo para que sea más fácil de leer
+                        color='winning_channel', template="plotly_dark",
+                        title="Evolución de Ingresos Mensuales por Canal")
+    st.plotly_chart(fig_trend, use_container_width=True)
             
-            # Stacked Area Chart: Enseña cómo evoluciona la cuota de mercado mes a mes
-            # Agrupamos por mes y canal
-            df_trend = df.groupby(['event_month', 'winning_channel'])['revenue_amount'].sum().reset_index()
-            # Calculamos la cuota de mercado mensual
-            df_trend['monthly_total'] = df_trend.groupby('event_month')['revenue_amount'].transform('sum')
-            df_trend['market_share'] = (df_trend['revenue_amount'] / df_trend['monthly_total']) * 100
-
-            fig_trend = px.area(df_trend, x='event_month', y='market_share',
-                                color='winning_channel', template="plotly_dark",
-                                title="Evolución de Cuota de Mercado (%)",
-                                color_discrete_sequence=px.colors.qualitative.Plotly_r)
-            fig_trend.update_layout(xaxis_title="Mes", yaxis_title="Cuota de Ingresos (%)", yaxis_range=[0,100])
-            st.plotly_chart(fig_trend, use_container_width=True)
-            st.success("✅ Insight: ¿Ves un canal creciendo a costa de otro? Identifica el momento del cambio.")
 
             # --- TABLA DE DATOS DETALLADA ---
             with st.expander("🔍 Ver transacciones detalladas"):
