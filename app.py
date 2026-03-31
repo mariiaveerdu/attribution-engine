@@ -3,107 +3,117 @@ import duckdb
 import pandas as pd
 import plotly.express as px
 
-# 1. Configuración de la Página
-st.set_page_config(page_title="Marketing Intelligence Pro", layout="wide")
+# 1. Configuración de la Página de Élite
+st.set_page_config(
+    page_title="Marketing Intelligence Pro",
+    page_icon="💎",
+    layout="wide"
+)
 
-# 2. Conexión y Carga de Datos (Limpieza Senior)
+# 2. Función de Carga de Datos (Limpieza y Normalización)
 @st.cache_data(ttl=600)
 def get_data(md_token):
     try:
+        # Conexión a MotherDuck
         con = duckdb.connect(f'md:detective_ventas?motherduck_token={md_token}')
-        # Traemos los datos y normalizamos columnas a minúsculas
+        
+        # Traemos los datos de tu tabla de dbt
         df = con.sql("SELECT * FROM detective_ventas.main.fct_attribute_last_click").df()
         con.close()
+        
+        # Normalizamos nombres de columnas a minúsculas para evitar errores
         df.columns = [c.lower() for c in df.columns]
         
-        # Gestión de fechas y meses
+        # Convertimos la fecha correctamente
         if 'converted_at' in df.columns:
             df['converted_at'] = pd.to_datetime(df['converted_at'])
-            df['event_month'] = df['converted_at'].dt.strftime('%Y-%m')
+            # Creamos una columna solo con la fecha (sin horas) para los gráficos diarios
+            df['fecha_dia'] = df['converted_at'].dt.date
         
-        # Limpieza de Revenue
+        # Aseguramos que el revenue sea un número
         df['revenue_amount'] = pd.to_numeric(df['revenue_amount'], errors='coerce').fillna(0)
+        
         return df
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error de conexión o de tabla: {e}")
         return None
 
-# --- ESTRUCTURA DEL DASHBOARD ---
-st.title("💎 Marketing Intelligence | Pro Command Center")
+# --- ESTRUCTURA DE LA INTERFAZ ---
 
-# Sidebar para el Token
-token = st.secrets.get("MOTHERDUCK_TOKEN") or st.sidebar.text_input("🔑 Token:", type="password")
+st.title("💎 Marketing Intelligence | Command Center")
+st.caption("Análisis de Atribución Last Click - Datos en tiempo real desde MotherDuck")
+
+# Sidebar para el Token (Prioriza st.secrets de Streamlit Cloud)
+token = st.secrets.get("MOTHERDUCK_TOKEN") or st.sidebar.text_input("🔑 Introduce tu Token:", type="password")
 
 if token:
-    df = get_data(token)
+    df_raw = get_data(token)
     
-    if df is not None and not df.empty:
-        # --- FILTROS ---
-        st.sidebar.header("🎯 Filtros")
-        canales = st.sidebar.multiselect("Canales:", options=df['winning_channel'].unique(), default=df['winning_channel'].unique())
-        df_filtered = df[df['winning_channel'].isin(canales)]
+    if df_raw is not None and not df_raw.empty:
+        # --- FILTROS EN SIDEBAR ---
+        st.sidebar.header("🎯 Controles")
+        canales_disponibles = sorted(df_raw['winning_channel'].unique())
+        canales_sel = st.sidebar.multiselect("Filtrar Canales:", options=canales_disponibles, default=canales_disponibles)
+        
+        # Aplicamos el filtro
+        df = df_raw[df_raw['winning_channel'].isin(canales_sel)]
 
-        # --- KPIs ---
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Revenue Total", f"{df_filtered['revenue_amount'].sum():,.0f}€")
-        c2.metric("Total Pedidos", len(df_filtered))
-        c3.metric("AOV", f"{df_filtered['revenue_amount'].mean():,.2f}€")
+        # --- SECCIÓN 1: KPIs ---
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Revenue Total", f"{df['revenue_amount'].sum():,.2f} €")
+        m2.metric("Conversiones", f"{len(df):,}")
+        m3.metric("Ticket Medio (AOV)", f"{df['revenue_amount'].mean():,.2f} €")
 
         st.markdown("---")
 
-        # --- GRÁFICOS SENIOR ---
-        col_a, col_b = st.columns(2)
+        # --- SECCIÓN 2: DIAGNÓSTICO DE RENTABILIDAD ---
+        col_left, col_right = st.columns(2)
 
-        with col_a:
-            st.subheader("📊 Distribución de Ingresos (Boxplot)")
-            fig_box = px.box(df_filtered, x='winning_channel', y='revenue_amount', color='winning_channel', template="plotly_dark")
+        with col_left:
+            st.subheader("📊 Distribución de Tickets por Canal")
+            # El Boxplot es clave para ver dónde están los clientes que más gastan
+            fig_box = px.box(df, x='winning_channel', y='revenue_amount', 
+                             color='winning_channel', template="plotly_dark")
             st.plotly_chart(fig_box, use_container_width=True)
 
-        with col_b:
-            st.subheader("🥧 Cuota de Mercado (Treemap)")
-            fig_tree = px.treemap(df_filtered, path=['winning_channel'], values='revenue_amount', color='revenue_amount', template="plotly_dark")
+        with col_right:
+            st.subheader("🥧 Cuota de Mercado (Revenue)")
+            # El Treemap ayuda a ver visualmente qué canal domina el presupuesto
+            fig_tree = px.treemap(df, path=['winning_channel'], values='revenue_amount', 
+                                  color='revenue_amount', template="plotly_dark",
+                                  color_continuous_scale='Blues')
             st.plotly_chart(fig_tree, use_container_width=True)
 
-        # --- GRÁFICA 4: EVOLUCIÓN ---
-st.header("📈 Evolución Diaria de Ingresos")
+        st.markdown("---")
 
-if 'converted_at' in df_filtered.columns:
-    # 1. Creamos una copia para no romper el dataframe original
-    df_ts = df_filtered.copy()
-    
-    # 2. Redondeamos la fecha al DÍA (quitamos horas/minutos/segundos)
-    df_ts['fecha_dia'] = df_ts['converted_at'].dt.date
-    
-    # 3. Agrupamos por Día y Canal
-    df_trend = df_ts.groupby(['fecha_dia', 'winning_channel'])['revenue_amount'].sum().reset_index()
-    
-    # 4. Ordenamos por fecha para que la línea no salte de un lado a otro
-    df_trend = df_trend.sort_values('fecha_dia')
+        # --- SECCIÓN 3: EVOLUCIÓN TEMPORAL ---
+        st.header("📈 Evolución Diaria de Ingresos")
+        
+        # Agrupamos por día y canal para ver la tendencia
+        df_trend = df.groupby(['fecha_dia', 'winning_channel'])['revenue_amount'].sum().reset_index()
+        df_trend = df_trend.sort_values('fecha_dia')
 
-    # 5. Dibujamos el gráfico (usamos marcadores para que se vean los puntos aunque haya pocos días)
-    fig_trend = px.area(
-        df_trend, 
-        x='fecha_dia', 
-        y='revenue_amount', 
-        color='winning_channel',
-        line_group='winning_channel',
-        markers=True, # IMPORTANTE: Así verás los puntos exactos del 31 y el 1
-        template="plotly_dark",
-        title="Revenue Diario por Canal de Atribución"
-    )
-    
-    # Ajustamos el eje X para que no invente horas
-    fig_trend.update_xaxes(type='category', tickangle=45) 
-    
-    st.plotly_chart(fig_trend, use_container_width=True)
-else:
-    st.warning("No se puede generar la evolución porque falta la columna de fecha.")
+        # Usamos gráfico de BARRAS porque con solo 2 días (31 Ene y 1 Feb) se entiende mucho mejor
+        fig_trend = px.bar(
+            df_trend, 
+            x='fecha_dia', 
+            y='revenue_amount', 
+            color='winning_channel',
+            barmode='group',
+            template="plotly_dark",
+            labels={'fecha_dia': 'Día de la Conversión', 'revenue_amount': 'Ingresos (€)'}
+        )
+        # Forzamos el eje X para que no invente horas, solo muestre los días con datos
+        fig_trend.update_xaxes(type='category')
+        st.plotly_chart(fig_trend, use_container_width=True)
 
-        # --- TABLA DETALLADA ---
-        with st.expander("🔍 Ver transacciones detalladas"):
-            # Quitamos el gradient para evitar el error de matplotlib por ahora y asegurar que cargue
-            st.dataframe(df_filtered, use_container_width=True)
+        # --- SECCIÓN 4: EXPLORADOR DE DATOS ---
+        with st.expander("🔍 Ver transacciones detalladas (Raw Data)"):
+            st.dataframe(df, use_container_width=True)
+            
     else:
-        st.warning("No se encontraron datos. Revisa tu tabla en MotherDuck.")
+        st.warning("⚠️ No se han podido cargar datos. Verifica que la tabla 'fct_attribute_last_click' existe en MotherDuck.")
+
 else:
-    st.info("👈 Introduce tu Token en el menú lateral.")
+    st.info("👈 Por favor, introduce tu Token de MotherDuck en la barra lateral para activar el dashboard.")
+    st.image("https://streamlit.io/images/brand/streamlit-mark-color.png", width=100)
