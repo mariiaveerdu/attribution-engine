@@ -10,27 +10,27 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. Función de Carga de Datos (Limpieza y Normalización)
+# 2. Función de Carga de Datos (Limpieza y Normalización Senior)
 @st.cache_data(ttl=600)
 def get_data(md_token):
     try:
         # Conexión a MotherDuck
         con = duckdb.connect(f'md:detective_ventas?motherduck_token={md_token}')
         
-        # Traemos los datos de tu tabla de dbt
+        # Traemos los datos de la tabla
         df = con.sql("SELECT * FROM detective_ventas.main.fct_attribute_last_click").df()
         con.close()
         
-        # Normalizamos nombres de columnas a minúsculas para evitar errores
+        # Normalizamos nombres de columnas a minúsculas
         df.columns = [c.lower() for c in df.columns]
         
-        # Convertimos la fecha correctamente
+        # Gestión de fechas
         if 'converted_at' in df.columns:
             df['converted_at'] = pd.to_datetime(df['converted_at'])
-            # Creamos una columna solo con la fecha (sin horas) para los gráficos diarios
+            # Creamos la columna de fecha sin hora para agrupar
             df['fecha_dia'] = df['converted_at'].dt.date
         
-        # Aseguramos que el revenue sea un número
+        # Aseguramos que el revenue sea numérico
         df['revenue_amount'] = pd.to_numeric(df['revenue_amount'], errors='coerce').fillna(0)
         
         return df
@@ -41,21 +41,20 @@ def get_data(md_token):
 # --- ESTRUCTURA DE LA INTERFAZ ---
 
 st.title("💎 Marketing Intelligence | Command Center")
-st.caption("Análisis de Atribución Last Click - Datos en tiempo real desde MotherDuck")
+st.caption("Análisis de Atribución Last Click - Visualización de Tendencias en Tiempo Real")
 
-# Sidebar para el Token (Prioriza st.secrets de Streamlit Cloud)
-token = st.secrets.get("MOTHERDUCK_TOKEN") or st.sidebar.text_input("🔑 Introduce tu Token:", type="password")
+# Sidebar para el Token
+token = st.secrets.get("MOTHERDUCK_TOKEN") or st.sidebar.text_input("🔑 Token de MotherDuck:", type="password")
 
 if token:
     df_raw = get_data(token)
     
     if df_raw is not None and not df_raw.empty:
-        # --- FILTROS EN SIDEBAR ---
-        st.sidebar.header("🎯 Controles")
+        # --- FILTROS ---
+        st.sidebar.header("🎯 Filtros de Campaña")
         canales_disponibles = sorted(df_raw['winning_channel'].unique())
-        canales_sel = st.sidebar.multiselect("Filtrar Canales:", options=canales_disponibles, default=canales_disponibles)
+        canales_sel = st.sidebar.multiselect("Seleccionar Canales:", options=canales_disponibles, default=canales_disponibles)
         
-        # Aplicamos el filtro
         df = df_raw[df_raw['winning_channel'].isin(canales_sel)]
 
         # --- SECCIÓN 1: KPIs ---
@@ -66,19 +65,18 @@ if token:
 
         st.markdown("---")
 
-        # --- SECCIÓN 2: DIAGNÓSTICO DE RENTABILIDAD ---
+        # --- SECCIÓN 2: DIAGNÓSTICOS VISUALES ---
         col_left, col_right = st.columns(2)
 
         with col_left:
-            st.subheader("📊 Distribución de Tickets por Canal")
-            # El Boxplot es clave para ver dónde están los clientes que más gastan
+            st.subheader("📊 Distribución de Tickets")
             fig_box = px.box(df, x='winning_channel', y='revenue_amount', 
                              color='winning_channel', template="plotly_dark")
+            fig_box.update_layout(xaxis_title="", yaxis_title="Euros (€)")
             st.plotly_chart(fig_box, use_container_width=True)
 
         with col_right:
-            st.subheader("🥧 Cuota de Mercado (Revenue)")
-            # El Treemap ayuda a ver visualmente qué canal domina el presupuesto
+            st.subheader("🥧 Cuota de Mercado")
             fig_tree = px.treemap(df, path=['winning_channel'], values='revenue_amount', 
                                   color='revenue_amount', template="plotly_dark",
                                   color_continuous_scale='Blues')
@@ -86,34 +84,38 @@ if token:
 
         st.markdown("---")
 
-        # --- SECCIÓN 3: EVOLUCIÓN TEMPORAL ---
-        st.header("📈 Evolución Diaria de Ingresos")
+        # --- SECCIÓN 3: EVOLUCIÓN TEMPORAL (VERSIÓN LÍNEAS) ---
+        st.header("📈 Tendencia Diaria de Ingresos")
         
-        # Agrupamos por día y canal para ver la tendencia
+        # Agrupamos por día y canal
         df_trend = df.groupby(['fecha_dia', 'winning_channel'])['revenue_amount'].sum().reset_index()
         df_trend = df_trend.sort_values('fecha_dia')
 
-        # Usamos gráfico de BARRAS porque con solo 2 días (31 Ene y 1 Feb) se entiende mucho mejor
-        fig_trend = px.bar(
+        # Gráfico de Líneas Pro
+        fig_line = px.line(
             df_trend, 
             x='fecha_dia', 
             y='revenue_amount', 
             color='winning_channel',
-            barmode='group',
+            markers=True, 
             template="plotly_dark",
-            labels={'fecha_dia': 'Día de la Conversión', 'revenue_amount': 'Ingresos (€)'}
+            title="Evolución de Ventas por Canal"
         )
-        # Forzamos el eje X para que no invente horas, solo muestre los días con datos
-        fig_trend.update_xaxes(type='category')
-        st.plotly_chart(fig_trend, use_container_width=True)
+        
+        # Estilo Senior para las líneas
+        fig_line.update_traces(line=dict(width=3), marker=dict(size=10))
+        # Forzamos el eje X para que sea categórico y no deje huecos
+        fig_line.update_xaxes(type='category', title="Fecha de Conversión")
+        fig_line.update_yaxes(title="Ingresos (€)", gridcolor='#374151')
+
+        st.plotly_chart(fig_line, use_container_width=True)
 
         # --- SECCIÓN 4: EXPLORADOR DE DATOS ---
-        with st.expander("🔍 Ver transacciones detalladas (Raw Data)"):
+        with st.expander("🔍 Ver transacciones detalladas"):
             st.dataframe(df, use_container_width=True)
             
     else:
-        st.warning("⚠️ No se han podido cargar datos. Verifica que la tabla 'fct_attribute_last_click' existe en MotherDuck.")
+        st.warning("⚠️ No hay datos disponibles para mostrar.")
 
 else:
-    st.info("👈 Por favor, introduce tu Token de MotherDuck en la barra lateral para activar el dashboard.")
-    st.image("https://streamlit.io/images/brand/streamlit-mark-color.png", width=100)
+    st.info("👈 Introduce tu Token en la barra lateral para activar el dashboard.")
